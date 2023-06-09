@@ -1,20 +1,30 @@
 package io.schematools.json.generate;
 
 import io.schematools.json.JsonSchemaPojoGenerator;
+import org.jboss.forge.roaster.Roaster;
+import org.jboss.forge.roaster.model.source.JavaClassSource;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class JsonSchemaPojoGeneratorTest {
 
     @Test
-    void simple() {
+    void simple() throws IOException {
         JsonSchemaPojoGenerator.Configuration configuration = new JsonSchemaPojoGenerator.Configuration("src/test/resources/schema/simple", "target/generated-sources");
         JsonSchemaPojoGenerator jsonSchemaPojoGenerator = new JsonSchemaPojoGenerator(configuration);
         jsonSchemaPojoGenerator.generate();
-        assertThat(new File("target/generated-sources/com/example/schemas/AddressV1.java")).exists().isNotEmpty();
+        File expectedFile = new File("target/generated-sources/com/example/schemas/AddressV1.java");
+        assertThat(expectedFile).exists().isNotEmpty();
+        JavaClassSource javaClassSource = Roaster.parse(JavaClassSource.class, expectedFile);
+        assertThat(javaClassSource.getPackage()).isEqualTo("com.example.schemas");
+        assertThat(javaClassSource.getField("streetAddress")).isNotNull();
+        assertThat(javaClassSource.getField("city")).isNotNull();
+        assertThat(javaClassSource.getField("state")).isNotNull();
+        assertThat(javaClassSource.getField("zipCode")).isNotNull();
     }
 
 }

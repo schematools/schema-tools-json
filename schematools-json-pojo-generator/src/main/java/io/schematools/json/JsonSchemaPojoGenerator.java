@@ -1,6 +1,9 @@
 package io.schematools.json;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.jboss.forge.roaster.model.source.FieldSource;
+import org.jboss.forge.roaster.model.source.JavaClassSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,11 +42,31 @@ public class JsonSchemaPojoGenerator {
 
     public void processProperty(String propertyName, JsonNode propertyNode, JsonSchema jsonSchema) {
         if (propertyNode.has("type")) {
-            //handle type
+            String type = propertyNode.get("type").asText();
+            switch (type) {
+                case "string" -> {
+                    addField(propertyName, String.class, jsonSchema.javaClassSource());
+                }
+                case "integer" -> {
+                    addField(propertyName, Integer.class, jsonSchema.javaClassSource());
+                }
+                default -> {
+                    throw new RuntimeException("Unknown property type: " + type + " on " + propertyName);
+                }
+            }
         }
         if (propertyNode.has("$ref")) {
             //handle $ref
         }
+    }
+
+    public void addField(String propertyName, Class<?> clazz, JavaClassSource javaClassSource) {
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                .setName(CaseHelper.convertToCamelCase(propertyName, false))
+                .setType(clazz)
+                .setPublic();
+        fieldSource.addAnnotation(JsonProperty.class)
+                .setStringValue("value", propertyName);
     }
 
     public void write(JsonSchema jsonSchema, String targetPath) {

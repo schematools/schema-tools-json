@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jboss.forge.roaster.Roaster;
 import org.jboss.forge.roaster.model.source.JavaClassSource;
 
+import javax.annotation.processing.Generated;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,6 +38,7 @@ public class JsonSchemaLoader {
     private JavaClassSource initializeJavaClassSource(Id id) {
         final JavaClassSource javaClassSource = Roaster.create(JavaClassSource.class);
         javaClassSource.setPackage(id.packageName()).setName(id.className());
+        javaClassSource.addAnnotation(Generated.class).setStringValue("value", "io.schematools");
         return javaClassSource;
     }
 
