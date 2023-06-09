@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-public record Id(String id, String packageName, String className, String version) {
+public record Id(String id, URI uri, String packageName, String className, String version) {
 
     public static Id create(String id) {
         URI uri = URI.create(id);
@@ -22,7 +22,11 @@ public record Id(String id, String packageName, String className, String version
         String className = CaseHelper.convertToCamelCase(pathSegments.remove(pathSegments.size() - 1), true) + version.toUpperCase();
         hostSegments.addAll(pathSegments);
         String packageName = hostSegments.stream().collect(Collectors.joining("."));
-        return new Id(id, packageName, className, version);
+        return new Id(id, uri, packageName, className, version);
+    }
+
+    public String baseUri() {
+        return uri.getScheme() + "://" + uri.getHost();
     }
 
 }

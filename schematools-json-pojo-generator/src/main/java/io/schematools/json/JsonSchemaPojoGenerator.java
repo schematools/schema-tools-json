@@ -20,22 +20,28 @@ public class JsonSchemaPojoGenerator {
 
     private final JsonSchemaLoader jsonSchemaLoader = new JsonSchemaLoader();
 
+    private Map<Id, JsonSchema> jsonSchemaMap;
+
     public JsonSchemaPojoGenerator(Configuration configuration) {
         this.configuration = configuration;
     }
 
     public void generate() {
-        Map<Id, JsonSchema> jsonSchemaMap = jsonSchemaLoader.load(configuration.sourcePath);
+        this.jsonSchemaMap = jsonSchemaLoader.load(configuration.sourcePath);
         jsonSchemaMap.forEach((id, jsonSchema) -> process(jsonSchema));
         jsonSchemaMap.forEach((id, jsonSchema) -> write(jsonSchema, configuration.targetPath));
     }
 
     public void process(JsonSchema jsonSchema) {
+        if (jsonSchema.isProcessed()) {
+            return;
+        }
         processProperties(jsonSchema);
+        jsonSchema.setProcessed(true);
     }
 
     public void processProperties(JsonSchema jsonSchema) {
-        for (Map.Entry<String, JsonNode> entry : jsonSchema.rootNode().get("properties").properties()) {
+        for (Map.Entry<String, JsonNode> entry : jsonSchema.getRootNode().get("properties").properties()) {
             processProperty(entry.getKey(), entry.getValue(), jsonSchema);
         }
     }
@@ -45,10 +51,13 @@ public class JsonSchemaPojoGenerator {
             String type = propertyNode.get("type").asText();
             switch (type) {
                 case "string" -> {
-                    addField(propertyName, String.class, jsonSchema.javaClassSource());
+                    addField(propertyName, String.class, jsonSchema.getJavaClassSource());
                 }
                 case "integer" -> {
-                    addField(propertyName, Integer.class, jsonSchema.javaClassSource());
+                    addField(propertyName, Integer.class, jsonSchema.getJavaClassSource());
+                }
+                case "array" -> {
+
                 }
                 default -> {
                     throw new RuntimeException("Unknown property type: " + type + " on " + propertyName);
@@ -56,16 +65,29 @@ public class JsonSchemaPojoGenerator {
             }
         }
         if (propertyNode.has("$ref")) {
-            //handle $ref
+            addRef(propertyName, propertyNode, jsonSchema);
         }
     }
 
+    public void addRef(String propertyName, JsonNode propertyNode, JsonSchema jsonSchema) {
+        String ref = propertyNode.get("$ref").asText();
+        String absRef = jsonSchema.getId().baseUri() + ref;
+        JsonSchema childSchema = jsonSchemaMap.get(Id.create(absRef));
+        process(childSchema);
+        jsonSchema.getJavaClassSource().addField()
+                .setName(CaseHelper.convertToCamelCase(propertyName, false))
+                .setType(childSchema.getJavaClassSource().getName())
+                .setPublic()
+                .addAnnotation(JsonProperty.class)
+                .setStringValue("value", propertyName);
+    }
+
     public void addField(String propertyName, Class<?> clazz, JavaClassSource javaClassSource) {
-        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+        javaClassSource.addField()
                 .setName(CaseHelper.convertToCamelCase(propertyName, false))
                 .setType(clazz)
-                .setPublic();
-        fieldSource.addAnnotation(JsonProperty.class)
+                .setPublic()
+                .addAnnotation(JsonProperty.class)
                 .setStringValue("value", propertyName);
     }
 
@@ -73,7 +95,7 @@ public class JsonSchemaPojoGenerator {
         File file = new File(jsonSchema.outputFileName(targetPath));
         file.getParentFile().mkdirs();
         try (PrintWriter out = new PrintWriter(file)) {
-            out.println(jsonSchema.javaClassSource().toString());
+            out.println(jsonSchema.getJavaClassSource().toString());
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
         }
