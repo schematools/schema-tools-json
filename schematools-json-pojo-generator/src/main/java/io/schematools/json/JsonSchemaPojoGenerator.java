@@ -8,6 +8,8 @@ import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import io.schematools.json.generate.JsonSchema;
+import io.schematools.json.generate.JsonSchemaLoader;
 import jakarta.annotation.Generated;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -19,12 +21,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class JsonSchemaPojoGenerator {
 
@@ -40,10 +38,10 @@ public class JsonSchemaPojoGenerator {
     }
 
     public void generate() {
-        this.jsonSchemaMap.putAll(jsonSchemaLoader.load(jsonSchemaPojoGeneratorConfiguration.sourcePath()));
+        this.jsonSchemaMap.putAll(jsonSchemaLoader.load(jsonSchemaPojoGeneratorConfiguration.sourcePath(), jsonSchemaPojoGeneratorConfiguration.targetPath()));
         for (Map.Entry<IdAdapter, JsonSchema> entry : jsonSchemaMap.entrySet()) {
             entry.getValue().process();
-            entry.getValue().write(jsonSchemaPojoGeneratorConfiguration.targetPath());
+            entry.getValue().write();
         }
     }
 
@@ -52,7 +50,7 @@ public class JsonSchemaPojoGenerator {
     private void generate(JsonSchema jsonSchema) {
         CompilationUnit compilationUnit = new CompilationUnit();
         compilationUnit.setPackageDeclaration(jsonSchema.idAdapter().packageName());
-        ClassOrInterfaceDeclaration classOrInterfaceDeclaration = compilationUnit.addClass(jsonSchema.getClassName());
+        ClassOrInterfaceDeclaration classOrInterfaceDeclaration = compilationUnit.addClass(jsonSchema.className());
         classOrInterfaceDeclaration.addAndGetAnnotation(Generated.class)
                 .addPair("value", new StringLiteralExpr("io.schematools"));
         for(Map.Entry<String, JsonNode> entry : jsonSchema.rootNode().get("properties").properties()) {
@@ -64,7 +62,7 @@ public class JsonSchemaPojoGenerator {
 
         try {
             String outputPath = jsonSchemaPojoGeneratorConfiguration.targetPath() + "/" + jsonSchema.idAdapter().packageName().replace('.', '/');
-            File file = new File(outputPath, jsonSchema.getJavaSourceFileName());
+            File file = new File(outputPath, jsonSchema.javaSourceFileName());
             file.getParentFile().mkdirs();
             FileWriter writer = new FileWriter(file);
             writer.write(compilationUnit.toString());
@@ -80,7 +78,6 @@ public class JsonSchemaPojoGenerator {
             String id = URI.create(jsonSchema.idAdapter().baseURI().toString() + jsonPropertyNode.get("$ref").asText()).toString();
             JsonSchema childSchema = jsonSchemaMap.get(id);
             this.generate(jsonSchema);
-            classOrInterfaceDeclaration.addField()
         }
         String type = jsonPropertyNode.get("type").asText();
         Class<?> clazz = getClassForType(type);

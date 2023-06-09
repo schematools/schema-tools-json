@@ -1,7 +1,8 @@
-package io.schematools.json;
+package io.schematools.json.generate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.schematools.json.IdAdapter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,15 +16,14 @@ public class JsonSchemaLoader {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public Map<IdAdapter, JsonSchema> load(String sourcePath) {
+    public Map<IdAdapter, JsonSchema> load(String sourcePath, String targetPath) {
         try {
             Map<IdAdapter, JsonSchema> jsonSchemaMap = new HashMap<>();
             List<Path> paths = this.getAllFilePaths(sourcePath);
             for (Path path: paths) {
                 JsonNode rootNode = objectMapper.readTree(path.toFile());
                 IdAdapter idAdapter = IdAdapter.parse(rootNode.get("$id").asText());
-                JsonSchema jsonSchema = JsonSchema.create(path, rootNode, idAdapter);
-                jsonSchemaMap.put(idAdapter, jsonSchema);
+                JsonSchema.create(path, rootNode, idAdapter, jsonSchemaMap, targetPath);
             }
             return jsonSchemaMap;
         } catch (IOException e) {
