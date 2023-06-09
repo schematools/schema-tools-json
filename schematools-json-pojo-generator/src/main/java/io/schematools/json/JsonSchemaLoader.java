@@ -1,8 +1,9 @@
-package io.schematools.json.generate;
+package io.schematools.json;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.schematools.json.IdAdapter;
+import org.jboss.forge.roaster.Roaster;
+import org.jboss.forge.roaster.model.source.JavaClassSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,19 +17,27 @@ public class JsonSchemaLoader {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public Map<IdAdapter, JsonSchema> load(String sourcePath, String targetPath) {
+    public Map<Id, JsonSchema> load(String sourcePath) {
+        Map<Id, JsonSchema> jsonSchemaMap = new HashMap<>();
         try {
-            Map<IdAdapter, JsonSchema> jsonSchemaMap = new HashMap<>();
             List<Path> paths = this.getAllFilePaths(sourcePath);
-            for (Path path: paths) {
+            for (Path path : paths) {
                 JsonNode rootNode = objectMapper.readTree(path.toFile());
-                IdAdapter idAdapter = IdAdapter.parse(rootNode.get("$id").asText());
-                JsonSchema.create(path, rootNode, idAdapter, jsonSchemaMap, targetPath);
+                Id id = Id.create(rootNode.get("$id").asText());
+                JavaClassSource javaClassSource = initializeJavaClassSource(id);
+                JsonSchema jsonSchema = new JsonSchema(id, rootNode, javaClassSource);
+                jsonSchemaMap.put(id, jsonSchema);
             }
-            return jsonSchemaMap;
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        return jsonSchemaMap;
+    }
+
+    private JavaClassSource initializeJavaClassSource(Id id) {
+        final JavaClassSource javaClassSource = Roaster.create(JavaClassSource.class);
+        javaClassSource.setPackage(id.packageName()).setName(id.className());
+        return javaClassSource;
     }
 
     private List<Path> getAllFilePaths(String sourcePath) {

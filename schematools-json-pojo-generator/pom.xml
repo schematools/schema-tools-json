@@ -11,21 +11,11 @@
     <artifactId>schematools-json-pojo-generator</artifactId>
 
     <properties>
-        <version.roaster>2.28.0.Final</version.roaster>
+
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.jboss.forge.roaster</groupId>
-            <artifactId>roaster-api</artifactId>
-            <version>${version.roaster}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jboss.forge.roaster</groupId>
-            <artifactId>roaster-jdt</artifactId>
-            <version>${version.roaster}</version>
-            <scope>runtime</scope>
-        </dependency>
+
     </dependencies>
 
 </project>
