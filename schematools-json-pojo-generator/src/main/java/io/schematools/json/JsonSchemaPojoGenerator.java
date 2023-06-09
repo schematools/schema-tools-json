@@ -18,9 +18,10 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.annotation.Annotation;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -30,26 +31,23 @@ public class JsonSchemaPojoGenerator {
     private static final Logger logger = LoggerFactory.getLogger(JsonSchemaPojoGenerator.class);
 
     private final JsonSchemaPojoGeneratorConfiguration jsonSchemaPojoGeneratorConfiguration;
+    private final JsonSchemaLoader jsonSchemaLoader = new JsonSchemaLoader();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Map<IdAdapter, JsonSchema> jsonSchemaMap = new HashMap<>();
 
     public JsonSchemaPojoGenerator(JsonSchemaPojoGeneratorConfiguration jsonSchemaPojoGeneratorConfiguration) {
         this.jsonSchemaPojoGeneratorConfiguration = jsonSchemaPojoGeneratorConfiguration;
     }
 
     public void generate() {
-        try {
-            List<Path> paths = this.getAllFilePaths(jsonSchemaPojoGeneratorConfiguration.sourcePath());
-            List<JsonSchema> jsonSchemas = new ArrayList<>();
-            for (Path path: paths) {
-                JsonNode rootNode = objectMapper.readTree(path.toFile());
-                IdAdapter idAdapter = IdAdapter.parse(rootNode.get("$id").asText());
-                JsonSchema jsonSchema = new JsonSchema(path, rootNode, idAdapter);
-                this.generate(jsonSchema);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        this.jsonSchemaMap.putAll(jsonSchemaLoader.load(jsonSchemaPojoGeneratorConfiguration.sourcePath()));
+        for (Map.Entry<IdAdapter, JsonSchema> entry : jsonSchemaMap.entrySet()) {
+            entry.getValue().process();
+            entry.getValue().write(jsonSchemaPojoGeneratorConfiguration.targetPath());
         }
     }
+
+
 
     private void generate(JsonSchema jsonSchema) {
         CompilationUnit compilationUnit = new CompilationUnit();
@@ -57,10 +55,10 @@ public class JsonSchemaPojoGenerator {
         ClassOrInterfaceDeclaration classOrInterfaceDeclaration = compilationUnit.addClass(jsonSchema.getClassName());
         classOrInterfaceDeclaration.addAndGetAnnotation(Generated.class)
                 .addPair("value", new StringLiteralExpr("io.schematools"));
-        for(Map.Entry<String, JsonNode> entry : jsonSchema.jsonNode().get("properties").properties()) {
-            handleProperty(entry.getKey(), entry.getValue(), classOrInterfaceDeclaration);
+        for(Map.Entry<String, JsonNode> entry : jsonSchema.rootNode().get("properties").properties()) {
+            handleProperty(jsonSchema, entry.getKey(), entry.getValue(), classOrInterfaceDeclaration);
         }
-        for (final JsonNode node : jsonSchema.jsonNode().get("required")){
+        for (final JsonNode node : jsonSchema.rootNode().get("required")){
             this.handleRequired(node, classOrInterfaceDeclaration);
         }
 
@@ -77,12 +75,18 @@ public class JsonSchemaPojoGenerator {
         }
     }
 
-    private void handleProperty(String name, JsonNode current, ClassOrInterfaceDeclaration classOrInterfaceDeclaration) {
-        String type = current.get("type").asText();
+    private void handleProperty(JsonSchema jsonSchema, String jsonPropertyName, JsonNode jsonPropertyNode, ClassOrInterfaceDeclaration classOrInterfaceDeclaration) {
+        if (jsonPropertyNode.has("$ref")) {
+            String id = URI.create(jsonSchema.idAdapter().baseURI().toString() + jsonPropertyNode.get("$ref").asText()).toString();
+            JsonSchema childSchema = jsonSchemaMap.get(id);
+            this.generate(jsonSchema);
+            classOrInterfaceDeclaration.addField()
+        }
+        String type = jsonPropertyNode.get("type").asText();
         Class<?> clazz = getClassForType(type);
-        FieldDeclaration fieldDeclaration = classOrInterfaceDeclaration.addField(clazz, CaseHelper.convertToCamelCase(name, false), Modifier.Keyword.PUBLIC);
+        FieldDeclaration fieldDeclaration = classOrInterfaceDeclaration.addField(clazz, CaseHelper.convertToCamelCase(jsonPropertyName, false), Modifier.Keyword.PUBLIC);
         fieldDeclaration.addAndGetAnnotation(JsonProperty.class)
-                .addPair("value", new StringLiteralExpr(name));
+                .addPair("value", new StringLiteralExpr(jsonPropertyName));
     }
 
     private void handleRequired(JsonNode jsonNode, ClassOrInterfaceDeclaration classOrInterfaceDeclaration) {
@@ -96,6 +100,9 @@ public class JsonSchemaPojoGenerator {
             case "string" -> {
                 return String.class;
             }
+            case "integer" -> {
+                return Integer.class;
+            }
             default -> throw new RuntimeException("Unknown Class for node type: " + type);
         }
     }
@@ -108,17 +115,6 @@ public class JsonSchemaPojoGenerator {
             default -> {
                 return NotNull.class;
             }
-        }
-    }
-
-    private List<Path> getAllFilePaths(String sourcePath) {
-        try {
-            return Files.walk(Path.of(sourcePath), Integer.MAX_VALUE)
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".json"))
-                    .collect(Collectors.toList());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 

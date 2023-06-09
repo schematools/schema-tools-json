@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-public record IdAdapter(String packageName, String className, String version) {
+public record IdAdapter(String id, URI uri, String packageName, String className, String version) {
 
     public static IdAdapter parse(String id) {
         URI uri = URI.create(id);
@@ -22,7 +22,11 @@ public record IdAdapter(String packageName, String className, String version) {
         String className = CaseHelper.convertToCamelCase(pathSegments.remove(pathSegments.size() - 1), true);
         hostSegments.addAll(pathSegments);
         String packageName = hostSegments.stream().collect(Collectors.joining("."));
-        return new IdAdapter(packageName, className, version);
+        return new IdAdapter(id, uri, packageName, className, version);
+    }
+
+    public URI baseURI() {
+        return URI.create(uri.getScheme() + "://" + uri.getHost());
     }
 
 }

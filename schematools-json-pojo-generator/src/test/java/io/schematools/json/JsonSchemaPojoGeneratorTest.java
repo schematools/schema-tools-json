@@ -31,4 +31,14 @@ public class JsonSchemaPojoGeneratorTest {
         assertThat(classOrInterfaceDeclaration.getFieldByName("zipCode")).isNotEmpty();
     }
 
+    @Test
+    void parent_child() throws IOException {
+        String expectedFilePathChild = "target/generated-sources/com/example/schemas/ChildV1.java";
+        String expectedFilePathParent = "target/generated-sources/com/example/schemas/ParentV1.java";
+        JsonSchemaPojoGenerator jsonSchemaPojoGenerator = new JsonSchemaPojoGenerator(new JsonSchemaPojoGeneratorConfiguration("src/test/resources/schema/parent-child", "target/generated-sources"));
+        jsonSchemaPojoGenerator.generate();
+        assertThat(new File(expectedFilePathChild)).exists();
+        assertThat(new File(expectedFilePathParent)).exists();
+    }
+
 }
