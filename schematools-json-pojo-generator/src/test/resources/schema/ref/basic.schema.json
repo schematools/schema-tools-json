@@ -1,0 +1,63 @@
+{
+  "$id": "https://example.com/schemas/basic/v1",
+  "type": "object",
+  "properties": {
+    "my_string": {
+      "type": "string"
+    },
+    "my_integer": {
+      "type": "integer"
+    },
+    "my_number": {
+      "type": "number"
+    },
+    "my_boolean": {
+      "type": "boolean"
+    },
+    "my_object": {
+      "type": "object",
+      "properties": {
+        "my_string": {
+          "type": "string"
+        }
+      }
+    },
+    "my_nested_object": {
+      "type": "object",
+      "properties": {
+        "my_string": {
+          "type": "string"
+        },
+        "my_second_level_nested_object": {
+          "type": "object",
+          "properties": {
+            "my_string": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "my_string_array": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "my_integer_array": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "my_child": {
+      "$ref": "/schemas/other/child/v1"
+    },
+    "my_children": {
+      "type": "array",
+      "items": {
+        "$ref": "/schemas/other/child/v1"
+      }
+    }
+  }
+}

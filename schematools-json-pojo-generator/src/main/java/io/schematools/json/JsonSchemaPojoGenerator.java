@@ -8,6 +8,7 @@ import org.jboss.forge.roaster.model.source.FieldSource;
 import org.jboss.forge.roaster.model.source.JavaClassSource;
 import org.jboss.forge.roaster.model.source.JavaSource;
 
+import javax.annotation.processing.Generated;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -29,15 +30,16 @@ public class JsonSchemaPojoGenerator {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
             jsonSchemaMap = new HashMap<>();
-            List<Path> paths = schemaLocator.getAllFilePaths(configuration.sourcePath());
-            for (Path path: paths) {
+            List<Path> paths = schemaLocator.getAllFilePaths(configuration.sourcePath(), configuration.fileNameGlob());
+            for (Path path : paths) {
                 JsonNode rootNode = objectMapper.readTree(path.toFile());
+                validate(rootNode);
                 Id id = Id.create(rootNode.get("$id").asText());
-                JavaClassSource javaClassSource = Roaster.create(JavaClassSource.class).setPackage(id.packageName()).setName(id.className());
+                JavaClassSource javaClassSource = createJavaSourceClass(id);
                 jsonSchemaMap.put(id, new JsonSchema(id, rootNode, javaClassSource));
             }
             for (Map.Entry<Id, JsonSchema> entry : jsonSchemaMap.entrySet()) {
-                walkJsonTree(entry.getValue());
+                process(entry.getValue());
                 write(configuration.targetPath(), entry.getKey(), entry.getValue().getJavaClassSource());
             }
         } catch (IOException e) {
@@ -45,10 +47,28 @@ public class JsonSchemaPojoGenerator {
         }
     }
 
-    public void walkJsonTree(JsonSchema jsonSchema) {
+    private void validate(JsonNode jsonNode) {
+        if (!jsonNode.has("$id")) {
+            throw new UnsupportedOperationException("JsonSchemaPojoGenerator only supports schemas with a properly formed URI as an $id");
+        }
+    }
+
+    private JavaClassSource createJavaSourceClass(Id id) {
+        JavaClassSource javaClassSource = Roaster.create(JavaClassSource.class)
+                .setPackage(id.packageName()).
+                setName(id.className());
+        javaClassSource.addAnnotation(Generated.class)
+                .setStringValue("value", "io.schematools");
+        return javaClassSource;
+    }
+
+    public void process(JsonSchema jsonSchema) {
+        if (jsonSchema.isProcessed()) {
+            return;
+        }
         NodeType nodeType = determineNodeType(jsonSchema.getRootNode());
         switch (nodeType) {
-            case OBJECT -> handleObjectNodeType(jsonSchema.getId(),null, jsonSchema.getRootNode(), jsonSchema.getJavaClassSource());
+            case OBJECT -> handleObjectNodeType(jsonSchema.getId(), null, jsonSchema.getRootNode(), jsonSchema.getJavaClassSource());
             default -> throw new UnsupportedOperationException("Unimplemented");
         }
         jsonSchema.setProcessed(true);
@@ -57,14 +77,14 @@ public class JsonSchemaPojoGenerator {
     public void handleObjectNodeType(Id id, String jsonPropertyName, JsonNode objectNode, JavaClassSource javaClassSource) {
         if (!Objects.isNull(jsonPropertyName)) {
             JavaClassSource innerJavaSourceClass = Roaster.create(JavaClassSource.class)
-                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, true));
+                    .setName(CaseHelper.toCamelCase(jsonPropertyName, true));
             Set<Map.Entry<String, JsonNode>> propertyNodes = objectNode.get("properties").properties();
             for (Map.Entry<String, JsonNode> entry : propertyNodes) {
                 walkJsonNode(null, entry.getKey(), entry.getValue(), innerJavaSourceClass);
             }
             javaClassSource.addNestedType(innerJavaSourceClass);
             FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
-                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                    .setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                     .setType(innerJavaSourceClass)
                     .setPublic();
             addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
@@ -74,14 +94,6 @@ public class JsonSchemaPojoGenerator {
                 walkJsonNode(id, entry.getKey(), entry.getValue(), javaClassSource);
             }
         }
-    }
-
-    public void write(String targetPath, Id id, JavaClassSource javaClassSource) throws FileNotFoundException {
-        File file = new File(id.outputFileName(targetPath));
-        file.getParentFile().mkdirs();
-        PrintWriter printWriter = new PrintWriter(file);
-        printWriter.write(javaClassSource.toString());
-        printWriter.close();
     }
 
     public void walkJsonNode(Id id, String jsonNodeName, JsonNode currentNode, JavaClassSource javaClassSource) {
@@ -98,21 +110,21 @@ public class JsonSchemaPojoGenerator {
     }
 
     public void handleStringNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
-        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                 .setType(String.class)
                 .setPublic();
         addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
     }
 
     public void handleNumberNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
-        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                 .setType(Double.class)
                 .setPublic();
         addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
     }
 
     public void handleIntegerNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
-        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                 .setType(Integer.class)
                 .setPublic();
         addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
@@ -120,7 +132,7 @@ public class JsonSchemaPojoGenerator {
 
     public void handleBooleanNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
         FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
-                .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                .setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                 .setType(Boolean.class)
                 .setPublic();
         addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
@@ -135,18 +147,18 @@ public class JsonSchemaPojoGenerator {
             //TODO check ref type
             String absoluteRef = id.baseUri() + ref;
             JsonSchema jsonSchema = jsonSchemaMap.get(Id.create(absoluteRef));
-            walkJsonTree(jsonSchema);
+            process(jsonSchema);
             JavaSource<?> javaSource = jsonSchema.getJavaClassSource().getEnclosingType();
             javaSource.addImport(javaSource);
             FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
-                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                    .setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                     .setType(String.format("List<%s>", javaSource.getName()))
                     .setPublic();
             addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
         } else {
             Class<?> clazz = getClassForNodeType(nodeType);
             FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
-                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                    .setName(CaseHelper.toCamelCase(jsonPropertyName, false))
                     .setType(String.format("List<%s>", clazz.getSimpleName()))
                     .setPublic();
             addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
@@ -168,9 +180,9 @@ public class JsonSchemaPojoGenerator {
         //TODO check ref type
         String absoluteRef = id.baseUri() + ref;
         JsonSchema jsonSchema = jsonSchemaMap.get(Id.create(absoluteRef));
-        walkJsonTree(jsonSchema);
+        process(jsonSchema);
         FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
-                .setName(CaseHelper.convertToCamelCase(jsonNodeName, false))
+                .setName(CaseHelper.toCamelCase(jsonNodeName, false))
                 .setType(jsonSchema.getJavaClassSource())
                 .setPublic();
         addJsonPropertyAnnotation(fieldSource, jsonNodeName);
@@ -199,9 +211,17 @@ public class JsonSchemaPojoGenerator {
         throw new RuntimeException("Unknown NodeType: " + jsonNode);
     }
 
-    public record Configuration(String sourcePath, String targetPath) {
+    public void write(String targetPath, Id id, JavaClassSource javaClassSource) throws FileNotFoundException {
+        File file = new File(id.outputFileName(targetPath));
+        file.getParentFile().mkdirs();
+        PrintWriter printWriter = new PrintWriter(file);
+        printWriter.write(javaClassSource.toString());
+        printWriter.close();
+    }
+
+    public record Configuration(String sourcePath, String fileNameGlob, String targetPath) {
         public Configuration(String sourcePath) {
-            this(sourcePath, "target/generated-sources");
+            this(sourcePath, "*.schema.json", "target/generated-sources");
         }
     }
 

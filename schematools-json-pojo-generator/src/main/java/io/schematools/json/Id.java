@@ -19,7 +19,7 @@ public record Id(String id, URI uri, String packageName, String className, Strin
         Collections.reverse(hostSegments);
         List<String> pathSegments = Arrays.stream(uri.getPath().split("/")).filter(s -> !s.isEmpty()).collect(Collectors.toList());
         String version = pathSegments.remove(pathSegments.size() - 1);
-        String className = CaseHelper.convertToCamelCase(pathSegments.remove(pathSegments.size() - 1), true) + version.toUpperCase();
+        String className = CaseHelper.toCamelCase(pathSegments.remove(pathSegments.size() - 1), true) + version.toUpperCase();
         hostSegments.addAll(pathSegments);
         String packageName = String.join(".", hostSegments);
         return new Id(id, uri, packageName, className, version);
