@@ -88,7 +88,7 @@ public class JsonSchemaPojoGenerator {
             case INTEGER -> handleIntegerNodeType(jsonNodeName, javaClassSource);
             case BOOLEAN -> handleBooleanNodeType(jsonNodeName, javaClassSource);
             case OBJECT -> handleObjectNodeType(jsonNodeName, currentNode, javaClassSource);
-            case ARRAY -> handleArrayNodeType();
+            case ARRAY -> handleArrayNodeType(jsonNodeName, currentNode, javaClassSource);
             case REFERENCE -> handleReferenceNodeType();
         }
     }
@@ -115,14 +115,33 @@ public class JsonSchemaPojoGenerator {
     }
 
     public void handleBooleanNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
-        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
                 .setType(Boolean.class)
                 .setPublic();
         addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
     }
 
-    public void handleArrayNodeType() {
-        throw new UnsupportedOperationException("Cannot handle object");
+    public void handleArrayNodeType(String jsonPropertyName, JsonNode arrayNode, JavaClassSource javaClassSource) {
+        javaClassSource.addImport(List.class);
+        JsonNode itemsNode = arrayNode.get("items");
+        NodeType nodeType = determineNodeType(itemsNode);
+        Class<?> clazz = getClassForNodeType(nodeType);
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                .setType(String.format("List<%s>", clazz.getSimpleName()))
+                .setPublic();
+        addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+    }
+
+    public Class<?> getClassForNodeType(NodeType nodeType) {
+        return switch (nodeType) {
+            case STRING -> String.class;
+            case NUMBER -> Double.class;
+            case INTEGER -> Integer.class;
+            case BOOLEAN -> Boolean.class;
+            default -> throw new UnsupportedOperationException("No class for nodeType[" + nodeType + "]");
+        };
     }
 
     public void handleReferenceNodeType() {
