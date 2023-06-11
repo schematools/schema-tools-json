@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jboss.forge.roaster.Roaster;
 import org.jboss.forge.roaster.model.source.FieldSource;
 import org.jboss.forge.roaster.model.source.JavaClassSource;
+import org.jboss.forge.roaster.model.source.JavaSource;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -91,7 +92,7 @@ public class JsonSchemaPojoGenerator {
             case INTEGER -> handleIntegerNodeType(jsonNodeName, javaClassSource);
             case BOOLEAN -> handleBooleanNodeType(jsonNodeName, javaClassSource);
             case OBJECT -> handleObjectNodeType(id, jsonNodeName, currentNode, javaClassSource);
-            case ARRAY -> handleArrayNodeType(jsonNodeName, currentNode, javaClassSource);
+            case ARRAY -> handleArrayNodeType(id, jsonNodeName, currentNode, javaClassSource);
             case REFERENCE -> handleReferenceNodeType(id, jsonNodeName, currentNode, javaClassSource);
         }
     }
@@ -125,16 +126,31 @@ public class JsonSchemaPojoGenerator {
         addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
     }
 
-    public void handleArrayNodeType(String jsonPropertyName, JsonNode arrayNode, JavaClassSource javaClassSource) {
+    public void handleArrayNodeType(Id id, String jsonPropertyName, JsonNode arrayNode, JavaClassSource javaClassSource) {
         javaClassSource.addImport(List.class);
         JsonNode itemsNode = arrayNode.get("items");
         NodeType nodeType = determineNodeType(itemsNode);
-        Class<?> clazz = getClassForNodeType(nodeType);
-        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
-                .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
-                .setType(String.format("List<%s>", clazz.getSimpleName()))
-                .setPublic();
-        addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+        if (nodeType.equals(NodeType.REFERENCE)) {
+            String ref = itemsNode.get("$ref").asText();
+            //TODO check ref type
+            String absoluteRef = id.baseUri() + ref;
+            JsonSchema jsonSchema = jsonSchemaMap.get(Id.create(absoluteRef));
+            walkJsonTree(jsonSchema);
+            JavaSource<?> javaSource = jsonSchema.getJavaClassSource().getEnclosingType();
+            javaSource.addImport(javaSource);
+            FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                    .setType(String.format("List<%s>", javaSource.getName()))
+                    .setPublic();
+            addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+        } else {
+            Class<?> clazz = getClassForNodeType(nodeType);
+            FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                    .setType(String.format("List<%s>", clazz.getSimpleName()))
+                    .setPublic();
+            addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+        }
     }
 
     public Class<?> getClassForNodeType(NodeType nodeType) {

@@ -52,6 +52,12 @@
     },
     "my_child": {
       "$ref": "/schemas/other/child/v1"
+    },
+    "my_children": {
+      "type": "array",
+      "items": {
+        "$ref": "/schemas/other/child/v1"
+      }
     }
   }
 }
