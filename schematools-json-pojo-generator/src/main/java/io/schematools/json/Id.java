@@ -21,8 +21,12 @@ public record Id(String id, URI uri, String packageName, String className, Strin
         String version = pathSegments.remove(pathSegments.size() - 1);
         String className = CaseHelper.convertToCamelCase(pathSegments.remove(pathSegments.size() - 1), true) + version.toUpperCase();
         hostSegments.addAll(pathSegments);
-        String packageName = hostSegments.stream().collect(Collectors.joining("."));
+        String packageName = String.join(".", hostSegments);
         return new Id(id, uri, packageName, className, version);
+    }
+
+    public String outputFileName(String targetPath) {
+        return targetPath + "/" + packageName.replace('.', '/') + "/" + className + ".java";
     }
 
     public String baseUri() {

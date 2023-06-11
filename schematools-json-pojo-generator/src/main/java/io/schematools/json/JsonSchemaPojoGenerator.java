@@ -2,116 +2,160 @@ package io.schematools.json;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jboss.forge.roaster.Roaster;
+import org.jboss.forge.roaster.model.source.FieldSource;
 import org.jboss.forge.roaster.model.source.JavaClassSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 public class JsonSchemaPojoGenerator {
 
-    private static final Logger logger = LoggerFactory.getLogger(JsonSchemaPojoGenerator.class);
-
     private final Configuration configuration;
-
-    private final JsonSchemaLoader jsonSchemaLoader = new JsonSchemaLoader();
-
-    private JsonSchemaMap jsonSchemaMap;
+    private final SchemaLocator schemaLocator = new SchemaLocator();
 
     public JsonSchemaPojoGenerator(Configuration configuration) {
         this.configuration = configuration;
     }
 
     public void generate() {
-        this.jsonSchemaMap = jsonSchemaLoader.load(configuration.sourcePath);
-        jsonSchemaMap.getStream().forEach(entry -> process(entry.getValue()));
-        jsonSchemaMap.getStream().forEach(entry -> write(entry.getValue(), configuration.targetPath));
-    }
-
-    public void process(JsonSchema jsonSchema) {
-        if (jsonSchema.isProcessed()) {
-            return;
-        }
-        processProperties(jsonSchema);
-        jsonSchema.setProcessed(true);
-    }
-
-    public void processProperties(JsonSchema jsonSchema) {
-        for (Map.Entry<String, JsonNode> entry : jsonSchema.getRootNode().get("properties").properties()) {
-            processProperty(entry.getKey(), entry.getValue(), jsonSchema);
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            List<Path> paths = schemaLocator.getAllFilePaths(configuration.sourcePath());
+            for (Path path: paths) {
+                JsonNode rootNode = objectMapper.readTree(path.toFile());
+                Id id = Id.create(rootNode.get("$id").asText());
+                JavaClassSource javaClassSource = Roaster.create(JavaClassSource.class).setPackage(id.packageName()).setName(id.className());
+                walkJsonTree(rootNode, javaClassSource);
+                write(configuration.targetPath(), id, javaClassSource);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
-    public void processProperty(String propertyName, JsonNode propertyNode, JsonSchema jsonSchema) {
-        if (propertyNode.has("type")) {
-            String type = propertyNode.get("type").asText();
-            switch (type) {
-                case "string" -> {
-                    addField(propertyName, String.class, jsonSchema.getJavaClassSource());
-                }
-                case "integer" -> {
-                    addField(propertyName, Integer.class, jsonSchema.getJavaClassSource());
-                }
-                case "array" -> {
+    public void walkJsonTree(JsonNode rootNode, JavaClassSource javaClassSource) {
+        NodeType nodeType = determineNodeType(rootNode);
+        switch (nodeType) {
+            case OBJECT -> handleObjectNodeType(null, rootNode, javaClassSource);
+            default -> throw new UnsupportedOperationException("Unimplemented");
+        }
+    }
 
-                }
-                default -> {
-                    throw new RuntimeException("Unknown property type: " + type + " on " + propertyName);
-                }
+    public void handleObjectNodeType(String jsonPropertyName, JsonNode objectNode, JavaClassSource javaClassSource) {
+        if (!Objects.isNull(jsonPropertyName)) {
+            JavaClassSource innerJavaSourceClass = Roaster.create(JavaClassSource.class)
+                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, true));
+            Set<Map.Entry<String, JsonNode>> propertyNodes = objectNode.get("properties").properties();
+            for (Map.Entry<String, JsonNode> entry : propertyNodes) {
+                walkJsonNode(entry.getKey(), entry.getValue(), innerJavaSourceClass);
+            }
+            javaClassSource.addNestedType(innerJavaSourceClass);
+            FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                    .setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                    .setType(innerJavaSourceClass)
+                    .setPublic();
+            addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+        } else {
+            Set<Map.Entry<String, JsonNode>> propertyNodes = objectNode.get("properties").properties();
+            for (Map.Entry<String, JsonNode> entry : propertyNodes) {
+                walkJsonNode(entry.getKey(), entry.getValue(), javaClassSource);
             }
         }
-        if (propertyNode.has("$ref")) {
-            addRef(propertyName, propertyNode, jsonSchema);
-        }
     }
 
-    public void addRef(String propertyName, JsonNode propertyNode, JsonSchema jsonSchema) {
-        String ref = propertyNode.get("$ref").asText();
-        String absRef = jsonSchema.getId().baseUri() + ref;
-        JsonSchema childSchema = jsonSchemaMap.get(Id.create(absRef)).orElseThrow(() -> new RuntimeException("No schema with id: " + absRef));
-        process(childSchema);
-        if (!jsonSchema.getJavaClassSource().getPackage().equals(childSchema.getJavaClassSource().getPackage())){
-            jsonSchema.getJavaClassSource().addImport(childSchema.getJavaClassSource().getEnclosingType());
-        }
-        jsonSchema.getJavaClassSource().addField()
-                .setName(CaseHelper.convertToCamelCase(propertyName, false))
-                .setType(childSchema.getJavaClassSource().getName())
-                .setPublic()
-                .addAnnotation(JsonProperty.class)
-                .setStringValue("value", propertyName);
-    }
-
-    public void addField(String propertyName, Class<?> clazz, JavaClassSource javaClassSource) {
-        javaClassSource.addField()
-                .setName(CaseHelper.convertToCamelCase(propertyName, false))
-                .setType(clazz)
-                .setPublic()
-                .addAnnotation(JsonProperty.class)
-                .setStringValue("value", propertyName);
-    }
-
-    public void write(JsonSchema jsonSchema, String targetPath) {
-        File file = new File(jsonSchema.outputFileName(targetPath));
+    public void write(String targetPath, Id id, JavaClassSource javaClassSource) throws FileNotFoundException {
+        File file = new File(id.outputFileName(targetPath));
         file.getParentFile().mkdirs();
-        try (PrintWriter out = new PrintWriter(file)) {
-            out.println(jsonSchema.getJavaClassSource().toString());
-        } catch (IOException ioException) {
-            throw new RuntimeException(ioException);
+        PrintWriter printWriter = new PrintWriter(file);
+        printWriter.write(javaClassSource.toString());
+        printWriter.close();
+    }
+
+    public void walkJsonNode(String jsonNodeName, JsonNode currentNode, JavaClassSource javaClassSource) {
+        NodeType nodeType = determineNodeType(currentNode);
+        switch (nodeType) {
+            case STRING -> handleStringNodeType(jsonNodeName, javaClassSource);
+            case NUMBER -> handleNumberNodeType(jsonNodeName, javaClassSource);
+            case INTEGER -> handleIntegerNodeType(jsonNodeName, javaClassSource);
+            case BOOLEAN -> handleBooleanNodeType(jsonNodeName, javaClassSource);
+            case OBJECT -> handleObjectNodeType(jsonNodeName, currentNode, javaClassSource);
+            case ARRAY -> handleArrayNodeType();
+            case REFERENCE -> handleReferenceNodeType();
         }
     }
 
-    public static class Configuration {
-        public String sourcePath;
-        public String targetPath;
+    public void handleStringNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                .setType(String.class)
+                .setPublic();
+        addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+    }
 
-        public Configuration(String sourcePath, String targetPath) {
-            this.sourcePath = sourcePath;
-            this.targetPath = targetPath;
+    public void handleNumberNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                .setType(Double.class)
+                .setPublic();
+        addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+    }
+
+    public void handleIntegerNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                .setType(Integer.class)
+                .setPublic();
+        addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+    }
+
+    public void handleBooleanNodeType(String jsonPropertyName, JavaClassSource javaClassSource) {
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField().setName(CaseHelper.convertToCamelCase(jsonPropertyName, false))
+                .setType(Boolean.class)
+                .setPublic();
+        addJsonPropertyAnnotation(fieldSource, jsonPropertyName);
+    }
+
+    public void handleArrayNodeType() {
+        throw new UnsupportedOperationException("Cannot handle object");
+    }
+
+    public void handleReferenceNodeType() {
+        throw new UnsupportedOperationException("Cannot handle object");
+    }
+
+    public void addJsonPropertyAnnotation(FieldSource<?> fieldSource, String propertyName) {
+        fieldSource.addAnnotation(JsonProperty.class).setStringValue("value", propertyName);
+    }
+
+    public NodeType determineNodeType(JsonNode jsonNode) {
+        if (jsonNode.has("type")) {
+            String type = jsonNode.get("type").asText();
+            return switch (type) {
+                case "string" -> NodeType.STRING;
+                case "number" -> NodeType.NUMBER;
+                case "integer" -> NodeType.INTEGER;
+                case "boolean" -> NodeType.BOOLEAN;
+                case "object" -> NodeType.OBJECT;
+                case "array" -> NodeType.ARRAY;
+                default -> throw new RuntimeException("Unknown type: " + type);
+            };
         }
+        if (jsonNode.has("$ref")) {
+            return NodeType.REFERENCE;
+        }
+        throw new RuntimeException("Unknown NodeType: " + jsonNode);
+    }
 
+    public record Configuration(String sourcePath, String targetPath) {
+        public Configuration(String sourcePath) {
+            this(sourcePath, "target/generated-sources");
+        }
     }
 
 }
