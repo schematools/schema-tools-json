@@ -12,51 +12,54 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 public class JsonSchemaPojoGenerator {
 
     private final Configuration configuration;
     private final SchemaLocator schemaLocator = new SchemaLocator();
+    private Map<Id, JsonSchema> jsonSchemaMap;
 
     public JsonSchemaPojoGenerator(Configuration configuration) {
         this.configuration = configuration;
     }
 
-    public void generate() {
+    public synchronized void generate() {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
+            jsonSchemaMap = new HashMap<>();
             List<Path> paths = schemaLocator.getAllFilePaths(configuration.sourcePath());
             for (Path path: paths) {
                 JsonNode rootNode = objectMapper.readTree(path.toFile());
                 Id id = Id.create(rootNode.get("$id").asText());
                 JavaClassSource javaClassSource = Roaster.create(JavaClassSource.class).setPackage(id.packageName()).setName(id.className());
-                walkJsonTree(rootNode, javaClassSource);
-                write(configuration.targetPath(), id, javaClassSource);
+                jsonSchemaMap.put(id, new JsonSchema(id, rootNode, javaClassSource));
+            }
+            for (Map.Entry<Id, JsonSchema> entry : jsonSchemaMap.entrySet()) {
+                walkJsonTree(entry.getValue());
+                write(configuration.targetPath(), entry.getKey(), entry.getValue().getJavaClassSource());
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-    public void walkJsonTree(JsonNode rootNode, JavaClassSource javaClassSource) {
-        NodeType nodeType = determineNodeType(rootNode);
+    public void walkJsonTree(JsonSchema jsonSchema) {
+        NodeType nodeType = determineNodeType(jsonSchema.getRootNode());
         switch (nodeType) {
-            case OBJECT -> handleObjectNodeType(null, rootNode, javaClassSource);
+            case OBJECT -> handleObjectNodeType(jsonSchema.getId(),null, jsonSchema.getRootNode(), jsonSchema.getJavaClassSource());
             default -> throw new UnsupportedOperationException("Unimplemented");
         }
+        jsonSchema.setProcessed(true);
     }
 
-    public void handleObjectNodeType(String jsonPropertyName, JsonNode objectNode, JavaClassSource javaClassSource) {
+    public void handleObjectNodeType(Id id, String jsonPropertyName, JsonNode objectNode, JavaClassSource javaClassSource) {
         if (!Objects.isNull(jsonPropertyName)) {
             JavaClassSource innerJavaSourceClass = Roaster.create(JavaClassSource.class)
                     .setName(CaseHelper.convertToCamelCase(jsonPropertyName, true));
             Set<Map.Entry<String, JsonNode>> propertyNodes = objectNode.get("properties").properties();
             for (Map.Entry<String, JsonNode> entry : propertyNodes) {
-                walkJsonNode(entry.getKey(), entry.getValue(), innerJavaSourceClass);
+                walkJsonNode(null, entry.getKey(), entry.getValue(), innerJavaSourceClass);
             }
             javaClassSource.addNestedType(innerJavaSourceClass);
             FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
@@ -67,7 +70,7 @@ public class JsonSchemaPojoGenerator {
         } else {
             Set<Map.Entry<String, JsonNode>> propertyNodes = objectNode.get("properties").properties();
             for (Map.Entry<String, JsonNode> entry : propertyNodes) {
-                walkJsonNode(entry.getKey(), entry.getValue(), javaClassSource);
+                walkJsonNode(id, entry.getKey(), entry.getValue(), javaClassSource);
             }
         }
     }
@@ -80,16 +83,16 @@ public class JsonSchemaPojoGenerator {
         printWriter.close();
     }
 
-    public void walkJsonNode(String jsonNodeName, JsonNode currentNode, JavaClassSource javaClassSource) {
+    public void walkJsonNode(Id id, String jsonNodeName, JsonNode currentNode, JavaClassSource javaClassSource) {
         NodeType nodeType = determineNodeType(currentNode);
         switch (nodeType) {
             case STRING -> handleStringNodeType(jsonNodeName, javaClassSource);
             case NUMBER -> handleNumberNodeType(jsonNodeName, javaClassSource);
             case INTEGER -> handleIntegerNodeType(jsonNodeName, javaClassSource);
             case BOOLEAN -> handleBooleanNodeType(jsonNodeName, javaClassSource);
-            case OBJECT -> handleObjectNodeType(jsonNodeName, currentNode, javaClassSource);
+            case OBJECT -> handleObjectNodeType(id, jsonNodeName, currentNode, javaClassSource);
             case ARRAY -> handleArrayNodeType(jsonNodeName, currentNode, javaClassSource);
-            case REFERENCE -> handleReferenceNodeType();
+            case REFERENCE -> handleReferenceNodeType(id, jsonNodeName, currentNode, javaClassSource);
         }
     }
 
@@ -144,8 +147,17 @@ public class JsonSchemaPojoGenerator {
         };
     }
 
-    public void handleReferenceNodeType() {
-        throw new UnsupportedOperationException("Cannot handle object");
+    public void handleReferenceNodeType(Id id, String jsonNodeName, JsonNode currentNode, JavaClassSource javaClassSource) {
+        String ref = currentNode.get("$ref").asText();
+        //TODO check ref type
+        String absoluteRef = id.baseUri() + ref;
+        JsonSchema jsonSchema = jsonSchemaMap.get(Id.create(absoluteRef));
+        walkJsonTree(jsonSchema);
+        FieldSource<JavaClassSource> fieldSource = javaClassSource.addField()
+                .setName(CaseHelper.convertToCamelCase(jsonNodeName, false))
+                .setType(jsonSchema.getJavaClassSource())
+                .setPublic();
+        addJsonPropertyAnnotation(fieldSource, jsonNodeName);
     }
 
     public void addJsonPropertyAnnotation(FieldSource<?> fieldSource, String propertyName) {
