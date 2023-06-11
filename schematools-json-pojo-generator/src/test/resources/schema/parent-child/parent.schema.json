@@ -12,12 +12,12 @@
       "type": "integer"
     },
     "child": {
-      "$ref": "/schemas/child/v1"
+      "$ref": "/schemas/other/child/v1"
     },
     "children": {
       "type": "array",
       "items": {
-        "$ref": "/schemas/child/v1"
+        "$ref": "/schemas/other/child/v1"
       }
     }
   },

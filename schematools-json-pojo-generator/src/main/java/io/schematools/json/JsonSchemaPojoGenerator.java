@@ -2,7 +2,6 @@ package io.schematools.json;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.jboss.forge.roaster.model.source.FieldSource;
 import org.jboss.forge.roaster.model.source.JavaClassSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +19,7 @@ public class JsonSchemaPojoGenerator {
 
     private final JsonSchemaLoader jsonSchemaLoader = new JsonSchemaLoader();
 
-    private Map<Id, JsonSchema> jsonSchemaMap;
+    private JsonSchemaMap jsonSchemaMap;
 
     public JsonSchemaPojoGenerator(Configuration configuration) {
         this.configuration = configuration;
@@ -28,8 +27,8 @@ public class JsonSchemaPojoGenerator {
 
     public void generate() {
         this.jsonSchemaMap = jsonSchemaLoader.load(configuration.sourcePath);
-        jsonSchemaMap.forEach((id, jsonSchema) -> process(jsonSchema));
-        jsonSchemaMap.forEach((id, jsonSchema) -> write(jsonSchema, configuration.targetPath));
+        jsonSchemaMap.getStream().forEach(entry -> process(entry.getValue()));
+        jsonSchemaMap.getStream().forEach(entry -> write(entry.getValue(), configuration.targetPath));
     }
 
     public void process(JsonSchema jsonSchema) {
@@ -72,8 +71,11 @@ public class JsonSchemaPojoGenerator {
     public void addRef(String propertyName, JsonNode propertyNode, JsonSchema jsonSchema) {
         String ref = propertyNode.get("$ref").asText();
         String absRef = jsonSchema.getId().baseUri() + ref;
-        JsonSchema childSchema = jsonSchemaMap.get(Id.create(absRef));
+        JsonSchema childSchema = jsonSchemaMap.get(Id.create(absRef)).orElseThrow(() -> new RuntimeException("No schema with id: " + absRef));
         process(childSchema);
+        if (!jsonSchema.getJavaClassSource().getPackage().equals(childSchema.getJavaClassSource().getPackage())){
+            jsonSchema.getJavaClassSource().addImport(childSchema.getJavaClassSource().getEnclosingType());
+        }
         jsonSchema.getJavaClassSource().addField()
                 .setName(CaseHelper.convertToCamelCase(propertyName, false))
                 .setType(childSchema.getJavaClassSource().getName())

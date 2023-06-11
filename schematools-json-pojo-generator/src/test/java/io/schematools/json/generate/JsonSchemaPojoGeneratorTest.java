@@ -32,10 +32,10 @@ public class JsonSchemaPojoGeneratorTest {
         JsonSchemaPojoGenerator.Configuration configuration = new JsonSchemaPojoGenerator.Configuration("src/test/resources/schema/parent-child", "target/generated-sources");
         JsonSchemaPojoGenerator jsonSchemaPojoGenerator = new JsonSchemaPojoGenerator(configuration);
         jsonSchemaPojoGenerator.generate();
-        File expectedFile = new File("target/generated-sources/com/example/schemas/ChildV1.java");
+        File expectedFile = new File("target/generated-sources/com/example/schemas/other/ChildV1.java");
         assertThat(expectedFile).exists().isNotEmpty();
         JavaClassSource javaClassSource = Roaster.parse(JavaClassSource.class, expectedFile);
-        assertThat(javaClassSource.getPackage()).isEqualTo("com.example.schemas");
+        assertThat(javaClassSource.getPackage()).isEqualTo("com.example.schemas.other");
         assertThat(javaClassSource.getField("firstName")).isNotNull();
         assertThat(javaClassSource.getField("lastName")).isNotNull();
         assertThat(javaClassSource.getField("age")).isNotNull();

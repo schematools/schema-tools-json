@@ -1,5 +1,5 @@
 {
-  "$id": "https://example.com/schemas/child/v1",
+  "$id": "https://example.com/schemas/other/child/v1",
   "type": "object",
   "properties": {
     "first_name": {

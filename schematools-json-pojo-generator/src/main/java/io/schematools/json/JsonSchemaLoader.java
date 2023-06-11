@@ -18,7 +18,7 @@ public class JsonSchemaLoader {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public Map<Id, JsonSchema> load(String sourcePath) {
+    public JsonSchemaMap load(String sourcePath) {
         Map<Id, JsonSchema> jsonSchemaMap = new HashMap<>();
         try {
             List<Path> paths = this.getAllFilePaths(sourcePath);
@@ -32,7 +32,7 @@ public class JsonSchemaLoader {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        return jsonSchemaMap;
+        return new JsonSchemaMap(jsonSchemaMap);
     }
 
     private JavaClassSource initializeJavaClassSource(Id id) {
